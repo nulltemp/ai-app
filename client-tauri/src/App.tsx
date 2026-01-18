@@ -1,15 +1,31 @@
 import { useState } from "react";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/core";
+import { fetch } from "@tauri-apps/plugin-http";
 import "./App.css";
 
 function App() {
   const [greetMsg, setGreetMsg] = useState("");
   const [name, setName] = useState("");
+  const [inputText, setInputText] = useState("");
+  const [response, setResponse] = useState("");
 
   async function greet() {
     // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
     setGreetMsg(await invoke("greet", { name }));
+  }
+
+  async function echoText() {
+    try {
+      const res = await fetch("http://127.0.0.1:8000/echo", {
+        method: "POST",
+        body: inputText,
+      });
+      const data = await res.text();
+      setResponse(data);
+    } catch (error) {
+      setResponse("Error: " + String(error));
+    }
   }
 
   return (
@@ -44,6 +60,21 @@ function App() {
         <button type="submit">Greet</button>
       </form>
       <p>{greetMsg}</p>
+
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          echoText();
+        }}
+      >
+        <input
+          onChange={(e) => setInputText(e.currentTarget.value)}
+          placeholder="Enter text to echo..."
+        />
+        <button type="submit">Send</button>
+      </form>
+      <p>Response: {response}</p>
     </main>
   );
 }
