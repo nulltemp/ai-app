@@ -9,6 +9,9 @@ function App() {
   const [name, setName] = useState("");
   const [inputText, setInputText] = useState("");
   const [response, setResponse] = useState("");
+  const [ollamaInput, setOllamaInput] = useState("");
+  const [ollamaResponse, setOllamaResponse] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   async function greet() {
     // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -25,6 +28,36 @@ function App() {
       setResponse(data);
     } catch (error) {
       setResponse("Error: " + String(error));
+    }
+  }
+
+  async function sendToOllama() {
+    if (!ollamaInput.trim()) return;
+
+    setIsLoading(true);
+    setOllamaResponse("");
+
+    try {
+      // Create proper JSON payload for Ollama API
+      const ollamaPayload = {
+        model: "gemma3:270m",
+        prompt: ollamaInput,
+        stream: false,
+      };
+
+      const res = await fetch("http://127.0.0.1:8000/ollama", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(ollamaPayload),
+      });
+      const data = await res.text();
+      setOllamaResponse(data);
+    } catch (error) {
+      setOllamaResponse("Error: " + String(error));
+    } finally {
+      setIsLoading(false);
     }
   }
 
@@ -75,6 +108,33 @@ function App() {
         <button type="submit">Send</button>
       </form>
       <p>Response: {response}</p>
+
+      <div className="ollama-section">
+        <h2>Ollama API</h2>
+        <form
+          className="row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            sendToOllama();
+          }}
+        >
+          <textarea
+            onChange={(e) => setOllamaInput(e.currentTarget.value)}
+            placeholder="Enter prompt for Ollama..."
+            rows={4}
+            style={{ width: "100%" }}
+          />
+          <button type="submit" disabled={isLoading}>
+            {isLoading ? "Processing..." : "Send to Ollama"}
+          </button>
+        </form>
+        <div className="response-container">
+          <h3>Ollama Response:</h3>
+          <pre className="response-text">
+            {ollamaResponse || "Response will appear here..."}
+          </pre>
+        </div>
+      </div>
     </main>
   );
 }

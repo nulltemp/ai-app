@@ -95,6 +95,64 @@ button {
   margin-right: 5px;
 }
 
+.ollama-section {
+  margin-top: 2rem;
+  padding: 1rem;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background-color: #f9f9f9;
+}
+
+.ollama-section h2 {
+  color: #24c8db;
+  margin-bottom: 1rem;
+}
+
+.ollama-section textarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 0.6em;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  font-family: inherit;
+  font-size: 1em;
+  margin-bottom: 0.5rem;
+  resize: vertical;
+}
+
+.ollama-section button {
+  margin-top: 0.5rem;
+}
+
+.response-container {
+  margin-top: 1rem;
+  text-align: left;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 1rem;
+  background-color: #fff;
+}
+
+.response-container h3 {
+  color: #646cff;
+  margin-bottom: 0.5rem;
+}
+
+.response-text {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: monospace;
+  font-size: 0.9em;
+  line-height: 1.4;
+  color: #333;
+  background-color: #f5f5f5;
+  padding: 0.5rem;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f6f6f6;
@@ -112,5 +170,26 @@ button {
   }
   button:active {
     background-color: #0f0f0f69;
+  }
+
+  .ollama-section {
+    background-color: #1f1f1f;
+    border-color: #444;
+  }
+
+  .ollama-section textarea {
+    background-color: #0f0f0f;
+    border-color: #444;
+    color: #f6f6f6;
+  }
+
+  .response-container {
+    background-color: #1f1f1f;
+    border-color: #444;
+  }
+
+  .response-text {
+    background-color: #0f0f0f;
+    color: #f6f6f6;
   }
 }
