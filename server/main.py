@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request, HTTPException
-import httpx
 import json
+import ollama
 
 app = FastAPI()
 
@@ -18,24 +18,26 @@ async def echo_string(request: Request):
 @app.post("/ollama")
 async def forward_to_ollama(request: Request):
     """
-    Forward the request body to the Ollama service running in Docker
-    and return the response as-is.
+    Forward the request messages to the Ollama service using the ollama library
+    and return only the message content.
     """
     try:
-        # Get the raw request body
-        body = await request.body()
+        # Get the request body as JSON
+        body = await request.json()
+        messages = body.get("messages", [])
 
-        # Forward the request to Ollama service
-        # Ollama typically runs on port 11434 in the Docker container
-        ollama_url = "http://ollama:11434/api/generate"
+        # Call Ollama chat
+        # Note: host defaults to localhost:11434 or OLLAMA_HOST environment variable.
+        # If running in Docker with another container named 'ollama', 
+        # ensure OLLAMA_HOST=http://ollama:11434 is set in the environment.
+        client = ollama.AsyncClient(host="http://ollama:11434")
+        response = await client.chat(
+            model="gemma3:270m",
+            messages=messages,
+        )
 
-        # Create async HTTP client and forward the request
-        async with httpx.AsyncClient() as client:
-            # Forward the request with the same body
-            response = await client.post(ollama_url, content=body)
-
-            # Return the response from Ollama as-is
-            return response.content
+        # Return only the message part
+        return response["message"]
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error forwarding request to Ollama: {str(e)}")

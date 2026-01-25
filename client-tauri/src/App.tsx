@@ -38,11 +38,9 @@ function App() {
     setOllamaResponse("");
 
     try {
-      // Create proper JSON payload for Ollama API
+      // Create proper JSON payload for our server's /ollama endpoint
       const ollamaPayload = {
-        model: "gemma3:270m",
-        prompt: ollamaInput,
-        stream: false,
+        messages: [{ role: "user", content: ollamaInput }],
       };
 
       const res = await fetch("http://127.0.0.1:8000/ollama", {
@@ -52,8 +50,9 @@ function App() {
         },
         body: JSON.stringify(ollamaPayload),
       });
-      const data = await res.text();
-      setOllamaResponse(data);
+      const data = await res.json();
+      // Server returns the message object: { role: 'assistant', content: '...' }
+      setOllamaResponse(data.content || JSON.stringify(data));
     } catch (error) {
       setOllamaResponse("Error: " + String(error));
     } finally {
