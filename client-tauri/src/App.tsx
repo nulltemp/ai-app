@@ -4,13 +4,18 @@ import { invoke } from "@tauri-apps/api/core";
 import { fetch } from "@tauri-apps/plugin-http";
 import "./App.css";
 
+const API_BASE = "http://127.0.0.1:8000";
+
+type ChatMessage = { role: "user" | "assistant"; content: string };
+
 function App() {
   const [greetMsg, setGreetMsg] = useState("");
   const [name, setName] = useState("");
   const [inputText, setInputText] = useState("");
   const [response, setResponse] = useState("");
   const [ollamaInput, setOllamaInput] = useState("");
-  const [ollamaResponse, setOllamaResponse] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   async function greet() {
@@ -20,7 +25,7 @@ function App() {
 
   async function echoText() {
     try {
-      const res = await fetch("http://127.0.0.1:8000/echo", {
+      const res = await fetch(`${API_BASE}/echo`, {
         method: "POST",
         body: inputText,
       });
@@ -34,27 +39,35 @@ function App() {
   async function sendToOllama() {
     if (!ollamaInput.trim()) return;
 
+    const history: ChatMessage[] = [
+      ...messages,
+      { role: "user", content: ollamaInput },
+    ];
+    setMessages(history);
+    setOllamaInput("");
+    setError("");
     setIsLoading(true);
-    setOllamaResponse("");
 
     try {
-      // Create proper JSON payload for our server's /ollama endpoint
-      const ollamaPayload = {
-        messages: [{ role: "user", content: ollamaInput }],
-      };
-
-      const res = await fetch("http://127.0.0.1:8000/ollama", {
+      const res = await fetch(`${API_BASE}/ollama`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(ollamaPayload),
+        body: JSON.stringify({ messages: history }),
       });
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(
+          typeof data.detail === "string"
+            ? data.detail
+            : `HTTP ${res.status}`
+        );
+      }
       // Server returns the message object: { role: 'assistant', content: '...' }
-      setOllamaResponse(data.content || JSON.stringify(data));
+      setMessages([...history, { role: "assistant", content: data.content }]);
     } catch (error) {
-      setOllamaResponse("Error: " + String(error));
+      setError("Error: " + String(error));
     } finally {
       setIsLoading(false);
     }
@@ -118,6 +131,7 @@ function App() {
           }}
         >
           <textarea
+            value={ollamaInput}
             onChange={(e) => setOllamaInput(e.currentTarget.value)}
             placeholder="Enter prompt for Ollama..."
             rows={4}
@@ -128,10 +142,17 @@ function App() {
           </button>
         </form>
         <div className="response-container">
-          <h3>Ollama Response:</h3>
-          <pre className="response-text">
-            {ollamaResponse || "Response will appear here..."}
-          </pre>
+          <h3>Conversation:</h3>
+          {messages.length === 0 && <p>Response will appear here...</p>}
+          {messages.map((m, i) => (
+            <pre key={i} className="response-text">
+              <strong>{m.role}:</strong> {m.content}
+            </pre>
+          ))}
+          {error && <p className="error">{error}</p>}
+          <button type="button" onClick={() => setMessages([])} disabled={isLoading}>
+            Clear
+          </button>
         </div>
       </div>
     </main>

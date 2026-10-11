@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Server application
   server:
@@ -10,15 +8,22 @@ services:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=gemma3:270m
     volumes:
       - ./server:/app
+    # Reload on edits since ./server is bind-mounted
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      - ollama
     restart: unless-stopped
 
   # Ollama service
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.40.2
+    # Only reachable from this machine; the server container uses the service name
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped

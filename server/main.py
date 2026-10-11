@@ -1,43 +1,72 @@
-from fastapi import FastAPI, Request, HTTPException
-import json
-import ollama
+import logging
+import os
+from contextlib import asynccontextmanager
+from typing import Literal
 
-app = FastAPI()
+import ollama
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
+
+logger = logging.getLogger("uvicorn.error")
+
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:270m")
+
+
+class Message(BaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
+class ChatRequest(BaseModel):
+    messages: list[Message]
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Share a single client (and its connection pool) across requests
+    app.state.ollama = ollama.AsyncClient(host=OLLAMA_HOST)
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
 
 @app.get("/")
 def read_root():
     return {"hello": "world"}
 
-@app.post("/echo")
+
+@app.post("/echo", response_class=PlainTextResponse)
 async def echo_string(request: Request):
-    # Get the raw body content
+    # Return the raw body as-is (as text, not JSON-encoded)
     body = await request.body()
-    # Return the body as-is
-    return body
+    return PlainTextResponse(body.decode("utf-8", errors="replace"))
+
 
 @app.post("/ollama")
-async def forward_to_ollama(request: Request):
+async def forward_to_ollama(chat: ChatRequest, request: Request):
     """
-    Forward the request messages to the Ollama service using the ollama library
-    and return only the message content.
+    Forward the request messages to the Ollama service and return only the message.
     """
+    client: ollama.AsyncClient = request.app.state.ollama
     try:
-        # Get the request body as JSON
-        body = await request.json()
-        messages = body.get("messages", [])
-
-        # Call Ollama chat
-        # Note: host defaults to localhost:11434 or OLLAMA_HOST environment variable.
-        # If running in Docker with another container named 'ollama', 
-        # ensure OLLAMA_HOST=http://ollama:11434 is set in the environment.
-        client = ollama.AsyncClient(host="http://ollama:11434")
         response = await client.chat(
-            model="gemma3:270m",
-            messages=messages,
+            model=OLLAMA_MODEL,
+            messages=[m.model_dump() for m in chat.messages],
         )
+    except ollama.ResponseError as e:
+        logger.exception("Ollama returned an error")
+        if e.status_code == 404:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Model '{OLLAMA_MODEL}' is not available on Ollama. Pull it first.",
+            )
+        raise HTTPException(status_code=502, detail="Ollama returned an error")
+    except Exception:
+        logger.exception("Failed to reach Ollama")
+        raise HTTPException(status_code=502, detail="Failed to reach Ollama")
 
-        # Return only the message part
-        return response["message"]
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error forwarding request to Ollama: {str(e)}")
+    # Return only the message part
+    return {"role": response.message.role, "content": response.message.content}
