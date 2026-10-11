@@ -1,6 +1,4 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useRef, useState } from "react";
 import { fetch } from "@tauri-apps/plugin-http";
 import "./App.css";
 
@@ -9,42 +7,27 @@ const API_BASE = "http://127.0.0.1:8000";
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
-  const [inputText, setInputText] = useState("");
-  const [response, setResponse] = useState("");
-  const [ollamaInput, setOllamaInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [echoInput, setEchoInput] = useState("");
+  const [echoResponse, setEchoResponse] = useState("");
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
-
-  async function echoText() {
-    try {
-      const res = await fetch(`${API_BASE}/echo`, {
-        method: "POST",
-        body: inputText,
-      });
-      const data = await res.text();
-      setResponse(data);
-    } catch (error) {
-      setResponse("Error: " + String(error));
-    }
-  }
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isLoading]);
 
   async function sendToOllama() {
-    if (!ollamaInput.trim()) return;
+    if (!input.trim() || isLoading) return;
 
     const history: ChatMessage[] = [
       ...messages,
-      { role: "user", content: ollamaInput },
+      { role: "user", content: input },
     ];
     setMessages(history);
-    setOllamaInput("");
+    setInput("");
     setError("");
     setIsLoading(true);
 
@@ -67,95 +50,119 @@ function App() {
       // Server returns the message object: { role: 'assistant', content: '...' }
       setMessages([...history, { role: "assistant", content: data.content }]);
     } catch (error) {
-      setError("Error: " + String(error));
+      setError(String(error));
     } finally {
       setIsLoading(false);
     }
   }
 
+  async function echoText() {
+    try {
+      const res = await fetch(`${API_BASE}/echo`, {
+        method: "POST",
+        body: echoInput,
+      });
+      setEchoResponse(await res.text());
+    } catch (error) {
+      setEchoResponse("Error: " + String(error));
+    }
+  }
+
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          echoText();
-        }}
-      >
-        <input
-          onChange={(e) => setInputText(e.currentTarget.value)}
-          placeholder="Enter text to echo..."
-        />
-        <button type="submit">Send</button>
-      </form>
-      <p>Response: {response}</p>
-
-      <div className="ollama-section">
-        <h2>Ollama API</h2>
-        <form
-          className="row"
-          onSubmit={(e) => {
-            e.preventDefault();
-            sendToOllama();
-          }}
-        >
-          <textarea
-            value={ollamaInput}
-            onChange={(e) => setOllamaInput(e.currentTarget.value)}
-            placeholder="Enter prompt for Ollama..."
-            rows={4}
-            style={{ width: "100%" }}
-          />
-          <button type="submit" disabled={isLoading}>
-            {isLoading ? "Processing..." : "Send to Ollama"}
-          </button>
-        </form>
-        <div className="response-container">
-          <h3>Conversation:</h3>
-          {messages.length === 0 && <p>Response will appear here...</p>}
-          {messages.map((m, i) => (
-            <pre key={i} className="response-text">
-              <strong>{m.role}:</strong> {m.content}
-            </pre>
-          ))}
-          {error && <p className="error">{error}</p>}
-          <button type="button" onClick={() => setMessages([])} disabled={isLoading}>
-            Clear
+    <div className="app">
+      <header className="header">
+        <h1 className="title">AI Chat</h1>
+        <div className="header-actions">
+          <details className="echo">
+            <summary className="button ghost">接続テスト</summary>
+            <form
+              className="echo-panel"
+              onSubmit={(e) => {
+                e.preventDefault();
+                echoText();
+              }}
+            >
+              <div className="echo-row">
+                <input
+                  value={echoInput}
+                  onChange={(e) => setEchoInput(e.currentTarget.value)}
+                  placeholder="送信するテキスト"
+                />
+                <button type="submit" className="button">
+                  Echo
+                </button>
+              </div>
+              {echoResponse && <pre className="echo-result">{echoResponse}</pre>}
+            </form>
+          </details>
+          <button
+            type="button"
+            className="button ghost"
+            onClick={() => {
+              setMessages([]);
+              setError("");
+            }}
+            disabled={isLoading || messages.length === 0}
+          >
+            クリア
           </button>
         </div>
-      </div>
-    </main>
+      </header>
+
+      <main className="messages">
+        {messages.length === 0 && !isLoading && (
+          <div className="empty">
+            <p className="empty-title">何でも聞いてください</p>
+            <p className="empty-sub">Enter で送信 / Shift + Enter で改行</p>
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} className={`message ${m.role}`}>
+            <div className="bubble">{m.content}</div>
+          </div>
+        ))}
+        {isLoading && (
+          <div className="message assistant">
+            <div className="bubble typing" aria-label="応答を待っています">
+              <span />
+              <span />
+              <span />
+            </div>
+          </div>
+        )}
+        {error && <div className="error">エラー: {error}</div>}
+        <div ref={bottomRef} />
+      </main>
+
+      <form
+        className="composer"
+        onSubmit={(e) => {
+          e.preventDefault();
+          sendToOllama();
+        }}
+      >
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              sendToOllama();
+            }
+          }}
+          placeholder="メッセージを入力..."
+          rows={1}
+          autoFocus
+        />
+        <button
+          type="submit"
+          className="button primary"
+          disabled={isLoading || !input.trim()}
+        >
+          送信
+        </button>
+      </form>
+    </div>
   );
 }
 

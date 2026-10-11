@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "client-tauri",
-        "width": 800,
-        "height": 600
+        "title": "AI Chat",
+        "width": 900,
+        "height": 700,
+        "minWidth": 420,
+        "minHeight": 480
       }
     ],
     "security": {
