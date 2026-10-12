@@ -377,3 +377,23 @@ textarea:focus {
     width: 100%;
   }
 }
+
+/* Attached camera frame */
+.bubble-image {
+  display: block;
+  max-width: 240px;
+  width: 100%;
+  margin-bottom: 6px;
+  border-radius: 8px;
+}
+
+.attach-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 44px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}

@@ -9,7 +9,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - OLLAMA_HOST=http://ollama:11434
-      - OLLAMA_MODEL=gemma3:270m
+      - OLLAMA_MODEL=gemma3:4b
     volumes:
       - ./server:/app
     # Reload on edits since ./server is bind-mounted
@@ -26,6 +26,14 @@ services:
       - "127.0.0.1:11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    # Use the NVIDIA GPU (requires Docker Desktop WSL2 backend + NVIDIA driver)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: unless-stopped
 
 volumes:

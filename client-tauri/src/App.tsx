@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { fetch } from "@tauri-apps/plugin-http";
-import MediaPreview from "./components/MediaPreview";
+import MediaPreview, { MediaPreviewHandle } from "./components/MediaPreview";
 import "./App.css";
 
 const API_BASE = "http://127.0.0.1:8000";
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
+type ChatMessage = { role: "user" | "assistant"; content: string; images?: string[] };
 
 function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -15,6 +15,8 @@ function App() {
   const [echoInput, setEchoInput] = useState("");
   const [echoResponse, setEchoResponse] = useState("");
   const [showMedia, setShowMedia] = useState(false);
+  const [attachFrame, setAttachFrame] = useState(true);
+  const mediaRef = useRef<MediaPreviewHandle>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -24,9 +26,10 @@ function App() {
   async function sendToOllama() {
     if (!input.trim() || isLoading) return;
 
+    const frame = showMedia && attachFrame ? mediaRef.current?.captureFrame() : null;
     const history: ChatMessage[] = [
       ...messages,
-      { role: "user", content: input },
+      { role: "user", content: input, ...(frame && { images: [frame] }) },
     ];
     setMessages(history);
     setInput("");
@@ -39,7 +42,13 @@ function App() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ messages: history }),
+        // Only the latest message carries its image; re-sending every past
+        // frame would make each turn slower as the conversation grows.
+        body: JSON.stringify({
+          messages: history.map((m, i) =>
+            i === history.length - 1 ? m : { role: m.role, content: m.content }
+          ),
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -118,7 +127,7 @@ function App() {
         </div>
       </header>
 
-      {showMedia && <MediaPreview />}
+      {showMedia && <MediaPreview ref={mediaRef} />}
 
       <main className="messages">
         {messages.length === 0 && !isLoading && (
@@ -129,7 +138,17 @@ function App() {
         )}
         {messages.map((m, i) => (
           <div key={i} className={`message ${m.role}`}>
-            <div className="bubble">{m.content}</div>
+            <div className="bubble">
+              {m.images?.map((img, j) => (
+                <img
+                  key={j}
+                  className="bubble-image"
+                  src={`data:image/jpeg;base64,${img}`}
+                  alt="添付したカメラ画像"
+                />
+              ))}
+              {m.content}
+            </div>
           </div>
         ))}
         {isLoading && (
@@ -152,6 +171,16 @@ function App() {
           sendToOllama();
         }}
       >
+        {showMedia && (
+          <label className="attach-toggle" title="送信時のカメラ映像を添付する">
+            <input
+              type="checkbox"
+              checked={attachFrame}
+              onChange={(e) => setAttachFrame(e.currentTarget.checked)}
+            />
+            映像を添付
+          </label>
+        )}
         <textarea
           value={input}
           onChange={(e) => setInput(e.currentTarget.value)}

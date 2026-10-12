@@ -11,12 +11,14 @@ from pydantic import BaseModel
 logger = logging.getLogger("uvicorn.error")
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:270m")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:4b")
 
 
 class Message(BaseModel):
     role: Literal["system", "user", "assistant"]
     content: str
+    # Base64-encoded images (no data: URL prefix); requires a vision-capable model
+    images: list[str] | None = None
 
 
 class ChatRequest(BaseModel):
@@ -54,7 +56,7 @@ async def forward_to_ollama(chat: ChatRequest, request: Request):
     try:
         response = await client.chat(
             model=OLLAMA_MODEL,
-            messages=[m.model_dump() for m in chat.messages],
+            messages=[m.model_dump(exclude_none=True) for m in chat.messages],
         )
     except ollama.ResponseError as e:
         logger.exception("Ollama returned an error")

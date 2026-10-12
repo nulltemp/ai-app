@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Ref, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 
 type DeviceOption = { deviceId: string; label: string };
+
+export type MediaPreviewHandle = {
+  /** Current camera frame as base64 JPEG (no data: URL prefix), or null if no video. */
+  captureFrame: () => string | null;
+};
+
+// Gemma 3's vision encoder works at 896x896, so larger frames only cost bandwidth.
+const MAX_FRAME_SIZE = 896;
 
 function toOptions(devices: MediaDeviceInfo[], kind: MediaDeviceKind, fallback: string) {
   return devices
@@ -8,7 +16,7 @@ function toOptions(devices: MediaDeviceInfo[], kind: MediaDeviceKind, fallback: 
     .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `${fallback} ${i + 1}` }));
 }
 
-function MediaPreview() {
+function MediaPreview({ ref }: { ref?: Ref<MediaPreviewHandle> }) {
   const [cameras, setCameras] = useState<DeviceOption[]>([]);
   const [mics, setMics] = useState<DeviceOption[]>([]);
   const [cameraId, setCameraId] = useState("");
@@ -17,6 +25,19 @@ function MediaPreview() {
   const [error, setError] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const meterRef = useRef<HTMLDivElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    captureFrame() {
+      const video = videoRef.current;
+      if (!video || !video.videoWidth) return null;
+      const scale = Math.min(1, MAX_FRAME_SIZE / Math.max(video.videoWidth, video.videoHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(video.videoWidth * scale);
+      canvas.height = Math.round(video.videoHeight * scale);
+      canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+    },
+  }));
 
   const refreshDevices = useCallback(async () => {
     const devices = await navigator.mediaDevices.enumerateDevices();
