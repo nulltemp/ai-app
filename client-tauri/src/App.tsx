@@ -7,6 +7,12 @@ import { listenForUtterance } from "./vad";
 import "./App.css";
 
 const API_BASE = "http://127.0.0.1:8000";
+// Tells the model the camera is its own eyes, not the user's view.
+const CAMERA_PROMPT =
+  "あなたはカメラを自分の目として、目の前にいるユーザーを見ながら会話しています。" +
+  "見えている光景はあなた自身が見ているもので、ユーザーが見ているものではありません。" +
+  "写っている人物は会話相手のユーザー本人です。" +
+  "見えているものについて話すときは「〜が見えます」「〜を持っていますね」のように、あなた自身の視点で話してください。";
 /** Pause between background descriptions of the camera view. */
 const SCENE_INTERVAL_MS = 5000;
 
@@ -73,13 +79,15 @@ function App() {
         // frame would make each turn slower as the conversation grows.
         body: JSON.stringify({
           messages: [
-            ...(seen
+            ...(seen || frame
               ? [
                   {
                     role: "system",
                     content:
-                      "あなたはカメラ越しにユーザーと会話しています。" +
-                      `現在のカメラ映像（${Math.round((Date.now() - seen.at) / 1000)}秒前）: ${seen.text}`,
+                      CAMERA_PROMPT +
+                      (seen
+                        ? `\nあなたの目に見えている光景（${Math.round((Date.now() - seen.at) / 1000)}秒前）: ${seen.text}`
+                        : "\nユーザーのメッセージに添付された画像が、今あなたの目に見えている光景です。"),
                   },
                 ]
               : []),
