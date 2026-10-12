@@ -22,9 +22,11 @@ type Props = {
   ref?: Ref<MediaPreviewHandle>;
   /** Called whenever the camera/mic stream is (re)acquired or lost. */
   onStreamChange?: () => void;
+  /** Latest description of the camera view, shown so the user can see what the AI sees. */
+  scene?: string;
 };
 
-function MediaPreview({ ref, onStreamChange }: Props) {
+function MediaPreview({ ref, onStreamChange, scene }: Props) {
   const [cameras, setCameras] = useState<DeviceOption[]>([]);
   const [mics, setMics] = useState<DeviceOption[]>([]);
   const [cameraId, setCameraId] = useState("");
@@ -168,6 +170,12 @@ function MediaPreview({ ref, onStreamChange }: Props) {
             <div ref={meterRef} className="meter-fill" />
           </div>
         </div>
+        {scene !== undefined && (
+          <div className="media-field">
+            <span>AI に見えているもの</span>
+            <p className="media-scene">{scene || "映像を確認中…"}</p>
+          </div>
+        )}
         {error && <div className="error">デバイスを取得できません: {error}</div>}
       </div>
     </section>

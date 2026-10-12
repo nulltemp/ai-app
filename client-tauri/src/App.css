@@ -378,6 +378,13 @@ textarea:focus {
   }
 }
 
+.media-scene {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+
 /* Attached camera frame */
 .bubble-image {
   display: block;

@@ -7,6 +7,8 @@ import { listenForUtterance } from "./vad";
 import "./App.css";
 
 const API_BASE = "http://127.0.0.1:8000";
+/** Pause between background descriptions of the camera view. */
+const SCENE_INTERVAL_MS = 5000;
 
 type ChatMessage = { role: "user" | "assistant"; content: string; images?: string[] };
 
@@ -18,8 +20,11 @@ function App() {
   const [echoInput, setEchoInput] = useState("");
   const [echoResponse, setEchoResponse] = useState("");
   const [showMedia, setShowMedia] = useState(false);
-  const [attachFrame, setAttachFrame] = useState(true);
+  const [watchCamera, setWatchCamera] = useState(true);
   const mediaRef = useRef<MediaPreviewHandle>(null);
+  // Latest background description of the camera view (see the effect below)
+  const sceneRef = useRef<{ text: string; at: number } | null>(null);
+  const [scene, setScene] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -34,6 +39,8 @@ function App() {
   // Bumped to restart listening (after each utterance, or when the panel's mic changes)
   const [listenRound, setListenRound] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef(isLoading);
+  loadingRef.current = isLoading;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -42,7 +49,11 @@ function App() {
   async function sendMessage(text: string) {
     if (!text.trim() || isLoading) return;
 
-    const frame = showMedia && attachFrame ? mediaRef.current?.captureFrame() : null;
+    const watching = showMedia && watchCamera;
+    const seen = watching ? sceneRef.current : null;
+    // Prefer the background description so the reply doesn't wait for image encoding;
+    // fall back to attaching a frame until the first description arrives.
+    const frame = watching && !seen ? mediaRef.current?.captureFrame() : null;
     const history: ChatMessage[] = [
       ...messages,
       { role: "user", content: text, ...(frame && { images: [frame] }) },
@@ -61,9 +72,21 @@ function App() {
         // Only the latest message carries its image; re-sending every past
         // frame would make each turn slower as the conversation grows.
         body: JSON.stringify({
-          messages: history.map((m, i) =>
-            i === history.length - 1 ? m : { role: m.role, content: m.content }
-          ),
+          messages: [
+            ...(seen
+              ? [
+                  {
+                    role: "system",
+                    content:
+                      "あなたはカメラ越しにユーザーと会話しています。" +
+                      `現在のカメラ映像（${Math.round((Date.now() - seen.at) / 1000)}秒前）: ${seen.text}`,
+                  },
+                ]
+              : []),
+            ...history.map((m, i) =>
+              i === history.length - 1 ? m : { role: m.role, content: m.content }
+            ),
+          ],
         }),
       });
       const data = await res.json();
@@ -189,6 +212,46 @@ function App() {
       setIsTranscribing(false);
     }
   }
+
+  // Describe the camera view in the background so replies can use the text.
+  // Skipped while a reply is being generated so the GPU stays free for it.
+  useEffect(() => {
+    sceneRef.current = null;
+    setScene("");
+    if (!showMedia || !watchCamera) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const tick = async () => {
+      const frame = loadingRef.current ? null : mediaRef.current?.captureFrame();
+      if (frame) {
+        try {
+          const res = await fetch(`${API_BASE}/describe`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image: frame }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail ?? `HTTP ${res.status}`);
+          if (!cancelled) {
+            sceneRef.current = { text: data.text, at: Date.now() };
+            setScene(data.text);
+          }
+        } catch (error) {
+          console.warn("Failed to describe the camera view:", error);
+        }
+      }
+      // Retry soon if there was no frame yet (camera starting) or a reply was in progress
+      if (!cancelled) timer = setTimeout(tick, frame ? SCENE_INTERVAL_MS : 1000);
+    };
+    tick();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [showMedia, watchCamera]);
 
   // Conversation mode: listen → transcribe → send → (read aloud) → listen again.
   // Listening pauses while the AI is busy or speaking so it doesn't hear itself.
@@ -328,7 +391,11 @@ function App() {
       </header>
 
       {showMedia && (
-        <MediaPreview ref={mediaRef} onStreamChange={() => setListenRound((n) => n + 1)} />
+        <MediaPreview
+          ref={mediaRef}
+          onStreamChange={() => setListenRound((n) => n + 1)}
+          scene={watchCamera ? scene : undefined}
+        />
       )}
 
       <div className="body">
@@ -377,13 +444,13 @@ function App() {
             }}
           >
             {showMedia && (
-              <label className="attach-toggle" title="送信時のカメラ映像を添付する">
+              <label className="attach-toggle" title="カメラ映像を AI に見せる（裏で定期的に要約）">
                 <input
                   type="checkbox"
-                  checked={attachFrame}
-                  onChange={(e) => setAttachFrame(e.currentTarget.checked)}
+                  checked={watchCamera}
+                  onChange={(e) => setWatchCamera(e.currentTarget.checked)}
                 />
-                映像を添付
+                映像を見る
               </label>
             )}
             <textarea

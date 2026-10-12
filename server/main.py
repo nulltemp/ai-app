@@ -23,6 +23,11 @@ VOICEVOX_HOST = os.getenv("VOICEVOX_HOST", "http://localhost:50021")
 # Speaker style ID (GET {VOICEVOX_HOST}/speakers lists them); 3 = ずんだもん (ノーマル)
 VOICEVOX_SPEAKER = int(os.getenv("VOICEVOX_SPEAKER", "3"))
 
+DESCRIBE_PROMPT = (
+    "この画像はユーザーを映しているカメラ映像です。"
+    "写っている人物の様子・表情・手に持っている物・周囲の状況を、日本語で2〜3文で簡潔に説明してください。"
+)
+
 
 class Message(BaseModel):
     role: Literal["system", "user", "assistant"]
@@ -33,6 +38,11 @@ class Message(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[Message]
+
+
+class DescribeRequest(BaseModel):
+    # Base64-encoded image (no data: URL prefix)
+    image: str = Field(min_length=1)
 
 
 class TTSRequest(BaseModel):
@@ -92,6 +102,27 @@ async def forward_to_ollama(chat: ChatRequest, request: Request):
 
     # Return only the message part
     return {"role": response.message.role, "content": response.message.content}
+
+
+@app.post("/describe")
+async def describe_image(req: DescribeRequest, request: Request):
+    """
+    Describe a camera frame in a few sentences and return {"text": ...}.
+    The client calls this in the background so replies can use the text
+    instead of encoding an image on every turn.
+    """
+    client: ollama.AsyncClient = request.app.state.ollama
+    try:
+        response = await client.chat(
+            model=OLLAMA_MODEL,
+            messages=[{"role": "user", "content": DESCRIBE_PROMPT, "images": [req.image]}],
+            options={"num_predict": 120},
+        )
+    except Exception:
+        logger.exception("Failed to describe the image")
+        raise HTTPException(status_code=502, detail="Failed to describe the image")
+
+    return {"text": response.message.content.strip()}
 
 
 async def get_whisper(app: FastAPI) -> WhisperModel:
