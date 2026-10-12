@@ -304,3 +304,76 @@ textarea:focus {
   height: 44px;
   padding: 0 20px;
 }
+
+.button.ghost.active {
+  color: var(--accent);
+}
+
+/* Camera / microphone preview */
+.media {
+  display: flex;
+  gap: 16px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background-color: var(--surface);
+}
+
+.media-video {
+  width: 240px;
+  aspect-ratio: 4 / 3;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background-color: #000;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.media-controls {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.media-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.media-field select {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 5px 8px;
+  color: var(--text);
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.meter {
+  height: 8px;
+  border-radius: 4px;
+  background-color: var(--bg);
+  overflow: hidden;
+}
+
+.meter-fill {
+  width: 0;
+  height: 100%;
+  background-color: var(--accent);
+  transition: width 0.05s linear;
+}
+
+@media (max-width: 600px) {
+  .media {
+    flex-direction: column;
+  }
+
+  .media-video {
+    width: 100%;
+  }
+}

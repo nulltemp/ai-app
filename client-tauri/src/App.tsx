@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { fetch } from "@tauri-apps/plugin-http";
+import MediaPreview from "./components/MediaPreview";
 import "./App.css";
 
 const API_BASE = "http://127.0.0.1:8000";
@@ -13,6 +14,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [echoInput, setEchoInput] = useState("");
   const [echoResponse, setEchoResponse] = useState("");
+  const [showMedia, setShowMedia] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -73,6 +75,13 @@ function App() {
       <header className="header">
         <h1 className="title">AI Chat</h1>
         <div className="header-actions">
+          <button
+            type="button"
+            className={`button ghost${showMedia ? " active" : ""}`}
+            onClick={() => setShowMedia((v) => !v)}
+          >
+            カメラ
+          </button>
           <details className="echo">
             <summary className="button ghost">接続テスト</summary>
             <form
@@ -108,6 +117,8 @@ function App() {
           </button>
         </div>
       </header>
+
+      {showMedia && <MediaPreview />}
 
       <main className="messages">
         {messages.length === 0 && !isLoading && (
