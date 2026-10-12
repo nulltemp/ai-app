@@ -484,3 +484,22 @@ textarea:focus {
     border-bottom: 1px solid var(--border);
   }
 }
+
+/* Conversation mode status */
+.voice-status {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.voice-status.listening {
+  border-color: var(--accent);
+  color: var(--accent);
+  animation: blink 1.6s infinite ease-in-out;
+}

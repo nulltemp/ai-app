@@ -18,7 +18,13 @@ function toOptions(devices: MediaDeviceInfo[], kind: MediaDeviceKind, fallback: 
     .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `${fallback} ${i + 1}` }));
 }
 
-function MediaPreview({ ref }: { ref?: Ref<MediaPreviewHandle> }) {
+type Props = {
+  ref?: Ref<MediaPreviewHandle>;
+  /** Called whenever the camera/mic stream is (re)acquired or lost. */
+  onStreamChange?: () => void;
+};
+
+function MediaPreview({ ref, onStreamChange }: Props) {
   const [cameras, setCameras] = useState<DeviceOption[]>([]);
   const [mics, setMics] = useState<DeviceOption[]>([]);
   const [cameraId, setCameraId] = useState("");
@@ -94,6 +100,7 @@ function MediaPreview({ ref }: { ref?: Ref<MediaPreviewHandle> }) {
   // Attach the stream to the preview video.
   useEffect(() => {
     if (videoRef.current) videoRef.current.srcObject = stream;
+    onStreamChange?.();
   }, [stream]);
 
   // Microphone level meter (updated via the DOM directly to avoid re-rendering every frame).

@@ -3,6 +3,7 @@ import { fetch } from "@tauri-apps/plugin-http";
 import MediaPreview, { MediaPreviewHandle } from "./components/MediaPreview";
 import Avatar from "./components/Avatar";
 import { connectLipSync } from "./lipSync";
+import { listenForUtterance } from "./vad";
 import "./App.css";
 
 const API_BASE = "http://127.0.0.1:8000";
@@ -25,22 +26,29 @@ function App() {
   const [readAloud, setReadAloud] = useState(true);
   const [showAvatar, setShowAvatar] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Bumped on every stop so a pending TTS request doesn't start playing afterwards
+  const speechIdRef = useRef(0);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [conversationMode, setConversationMode] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  // Bumped to restart listening (after each utterance, or when the panel's mic changes)
+  const [listenRound, setListenRound] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
-  async function sendToOllama() {
-    if (!input.trim() || isLoading) return;
+  async function sendMessage(text: string) {
+    if (!text.trim() || isLoading) return;
 
     const frame = showMedia && attachFrame ? mediaRef.current?.captureFrame() : null;
     const history: ChatMessage[] = [
       ...messages,
-      { role: "user", content: input, ...(frame && { images: [frame] }) },
+      { role: "user", content: text, ...(frame && { images: [frame] }) },
     ];
     setMessages(history);
-    setInput("");
+    if (text === input) setInput("");
     setError("");
     setIsLoading(true);
 
@@ -77,12 +85,16 @@ function App() {
   }
 
   function stopSpeaking() {
+    speechIdRef.current++;
     audioRef.current?.pause();
     audioRef.current = null;
+    setIsSpeaking(false);
   }
 
   async function speak(text: string) {
     stopSpeaking();
+    const id = speechIdRef.current;
+    setIsSpeaking(true);
     try {
       const res = await fetch(`${API_BASE}/tts`, {
         method: "POST",
@@ -95,13 +107,25 @@ function App() {
           typeof data.detail === "string" ? data.detail : `HTTP ${res.status}`
         );
       }
-      const url = URL.createObjectURL(await res.blob());
+      const blob = await res.blob();
+      if (id !== speechIdRef.current) return;
+
+      const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
-      audio.onended = audio.onpause = () => URL.revokeObjectURL(url);
+      audio.onended = audio.onpause = () => {
+        URL.revokeObjectURL(url);
+        if (audioRef.current === audio) {
+          audioRef.current = null;
+          setIsSpeaking(false);
+        }
+      };
       connectLipSync(audio);
       audioRef.current = audio;
       await audio.play();
     } catch (error) {
+      if (id !== speechIdRef.current) return;
+      audioRef.current = null;
+      setIsSpeaking(false);
       setError("読み上げに失敗しました: " + String(error));
     }
   }
@@ -129,7 +153,9 @@ function App() {
       recorderRef.current = null;
       setIsRecording(false);
       if (ownsStream) stream.getTracks().forEach((t) => t.stop());
-      transcribe(new Blob(chunks, { type: recorder.mimeType }));
+      transcribe(new Blob(chunks, { type: recorder.mimeType })).then((text) => {
+        if (text) setInput((prev) => (prev ? prev + " " : "") + text);
+      });
     };
     // Don't let the avatar's own voice leak into the recording
     stopSpeaking();
@@ -139,8 +165,9 @@ function App() {
     setError("");
   }
 
-  async function transcribe(audio: Blob) {
-    if (audio.size === 0) return;
+  /** Transcribe audio via /stt; returns the text, or null on failure / silence. */
+  async function transcribe(audio: Blob): Promise<string | null> {
+    if (audio.size === 0) return null;
     setIsTranscribing(true);
     try {
       const res = await fetch(`${API_BASE}/stt`, {
@@ -154,15 +181,64 @@ function App() {
           typeof data.detail === "string" ? data.detail : `HTTP ${res.status}`
         );
       }
-      if (data.text) {
-        setInput((prev) => (prev ? prev + " " : "") + data.text);
-      }
+      return data.text || null;
     } catch (error) {
       setError("音声認識に失敗しました: " + String(error));
+      return null;
     } finally {
       setIsTranscribing(false);
     }
   }
+
+  // Conversation mode: listen → transcribe → send → (read aloud) → listen again.
+  // Listening pauses while the AI is busy or speaking so it doesn't hear itself.
+  const sendRef = useRef(sendMessage);
+  sendRef.current = sendMessage;
+  const transcribeRef = useRef(transcribe);
+  transcribeRef.current = transcribe;
+  const canListen =
+    conversationMode && !isLoading && !isTranscribing && !isSpeaking && !isRecording;
+
+  useEffect(() => {
+    if (!canListen) return;
+
+    let cancelled = false;
+    let stopListening: (() => void) | null = null;
+    let ownStream: MediaStream | null = null;
+
+    (async () => {
+      let stream = showMedia ? mediaRef.current?.getAudioStream() ?? null : null;
+      if (!stream) {
+        try {
+          stream = ownStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (error) {
+          setError("マイクを取得できません: " + String(error));
+          setConversationMode(false);
+          return;
+        }
+      }
+      if (cancelled) {
+        ownStream?.getTracks().forEach((t) => t.stop());
+        return;
+      }
+
+      setIsListening(true);
+      stopListening = listenForUtterance(stream, async (audio) => {
+        ownStream?.getTracks().forEach((t) => t.stop());
+        setIsListening(false);
+        const text = await transcribeRef.current(audio);
+        if (text) sendRef.current(text);
+        setListenRound((n) => n + 1);
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+      stopListening?.();
+      ownStream?.getTracks().forEach((t) => t.stop());
+      setIsListening(false);
+    };
+  }, [canListen, showMedia, listenRound]);
 
   async function echoText() {
     try {
@@ -194,6 +270,14 @@ function App() {
             onClick={() => setShowAvatar((v) => !v)}
           >
             アバター
+          </button>
+          <button
+            type="button"
+            className={`button ghost${conversationMode ? " active" : ""}`}
+            onClick={() => setConversationMode((v) => !v)}
+            title="話しかけるだけで会話する（話し終わると自動で送信）"
+          >
+            会話モード
           </button>
           <button
             type="button"
@@ -243,7 +327,9 @@ function App() {
         </div>
       </header>
 
-      {showMedia && <MediaPreview ref={mediaRef} />}
+      {showMedia && (
+        <MediaPreview ref={mediaRef} onStreamChange={() => setListenRound((n) => n + 1)} />
+      )}
 
       <div className="body">
         {showAvatar && <Avatar />}
@@ -287,7 +373,7 @@ function App() {
             className="composer"
             onSubmit={(e) => {
               e.preventDefault();
-              sendToOllama();
+              sendMessage(input);
             }}
           >
             {showMedia && (
@@ -306,22 +392,36 @@ function App() {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
-                  sendToOllama();
+                  sendMessage(input);
                 }
               }}
               placeholder="メッセージを入力..."
               rows={1}
               autoFocus
             />
-            <button
-              type="button"
-              className={`button mic${isRecording ? " recording" : ""}`}
-              onClick={toggleRecording}
-              disabled={isTranscribing}
-              title={isRecording ? "録音を停止して文字起こし" : "音声で入力"}
-            >
-              {isTranscribing ? "変換中…" : isRecording ? "停止" : "録音"}
-            </button>
+            {conversationMode ? (
+              <span className={`voice-status${isListening ? " listening" : ""}`}>
+                {isListening
+                  ? "聞き取り中"
+                  : isTranscribing
+                    ? "認識中…"
+                    : isLoading
+                      ? "考え中…"
+                      : isSpeaking
+                        ? "話し中"
+                        : "準備中…"}
+              </span>
+            ) : (
+              <button
+                type="button"
+                className={`button mic${isRecording ? " recording" : ""}`}
+                onClick={toggleRecording}
+                disabled={isTranscribing}
+                title={isRecording ? "録音を停止して文字起こし" : "音声で入力"}
+              >
+                {isTranscribing ? "変換中…" : isRecording ? "停止" : "録音"}
+              </button>
+            )}
             <button
               type="submit"
               className="button primary"
