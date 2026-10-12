@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# VRM avatar models (licenses usually forbid redistribution)
+public/models/

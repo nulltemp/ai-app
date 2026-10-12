@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { fetch } from "@tauri-apps/plugin-http";
 import MediaPreview, { MediaPreviewHandle } from "./components/MediaPreview";
+import Avatar from "./components/Avatar";
+import { connectLipSync } from "./lipSync";
 import "./App.css";
 
 const API_BASE = "http://127.0.0.1:8000";
@@ -21,6 +23,7 @@ function App() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const [readAloud, setReadAloud] = useState(true);
+  const [showAvatar, setShowAvatar] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -95,6 +98,7 @@ function App() {
       const url = URL.createObjectURL(await res.blob());
       const audio = new Audio(url);
       audio.onended = audio.onpause = () => URL.revokeObjectURL(url);
+      connectLipSync(audio);
       audioRef.current = audio;
       await audio.play();
     } catch (error) {
@@ -186,6 +190,13 @@ function App() {
           </button>
           <button
             type="button"
+            className={`button ghost${showAvatar ? " active" : ""}`}
+            onClick={() => setShowAvatar((v) => !v)}
+          >
+            アバター
+          </button>
+          <button
+            type="button"
             className={`button ghost${readAloud ? " active" : ""}`}
             onClick={() => {
               if (readAloud) stopSpeaking();
@@ -234,90 +245,95 @@ function App() {
 
       {showMedia && <MediaPreview ref={mediaRef} />}
 
-      <main className="messages">
-        {messages.length === 0 && !isLoading && (
-          <div className="empty">
-            <p className="empty-title">何でも聞いてください</p>
-            <p className="empty-sub">Enter で送信 / Shift + Enter で改行</p>
-          </div>
-        )}
-        {messages.map((m, i) => (
-          <div key={i} className={`message ${m.role}`}>
-            <div className="bubble">
-              {m.images?.map((img, j) => (
-                <img
-                  key={j}
-                  className="bubble-image"
-                  src={`data:image/jpeg;base64,${img}`}
-                  alt="添付したカメラ画像"
-                />
-              ))}
-              {m.content}
-            </div>
-          </div>
-        ))}
-        {isLoading && (
-          <div className="message assistant">
-            <div className="bubble typing" aria-label="応答を待っています">
-              <span />
-              <span />
-              <span />
-            </div>
-          </div>
-        )}
-        {error && <div className="error">エラー: {error}</div>}
-        <div ref={bottomRef} />
-      </main>
+      <div className="body">
+        {showAvatar && <Avatar />}
+        <div className="chat">
+          <main className="messages">
+            {messages.length === 0 && !isLoading && (
+              <div className="empty">
+                <p className="empty-title">何でも聞いてください</p>
+                <p className="empty-sub">Enter で送信 / Shift + Enter で改行</p>
+              </div>
+            )}
+            {messages.map((m, i) => (
+              <div key={i} className={`message ${m.role}`}>
+                <div className="bubble">
+                  {m.images?.map((img, j) => (
+                    <img
+                      key={j}
+                      className="bubble-image"
+                      src={`data:image/jpeg;base64,${img}`}
+                      alt="添付したカメラ画像"
+                    />
+                  ))}
+                  {m.content}
+                </div>
+              </div>
+            ))}
+            {isLoading && (
+              <div className="message assistant">
+                <div className="bubble typing" aria-label="応答を待っています">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              </div>
+            )}
+            {error && <div className="error">エラー: {error}</div>}
+            <div ref={bottomRef} />
+          </main>
 
-      <form
-        className="composer"
-        onSubmit={(e) => {
-          e.preventDefault();
-          sendToOllama();
-        }}
-      >
-        {showMedia && (
-          <label className="attach-toggle" title="送信時のカメラ映像を添付する">
-            <input
-              type="checkbox"
-              checked={attachFrame}
-              onChange={(e) => setAttachFrame(e.currentTarget.checked)}
-            />
-            映像を添付
-          </label>
-        )}
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.currentTarget.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+          <form
+            className="composer"
+            onSubmit={(e) => {
               e.preventDefault();
               sendToOllama();
-            }
-          }}
-          placeholder="メッセージを入力..."
-          rows={1}
-          autoFocus
-        />
-        <button
-          type="button"
-          className={`button mic${isRecording ? " recording" : ""}`}
-          onClick={toggleRecording}
-          disabled={isTranscribing}
-          title={isRecording ? "録音を停止して文字起こし" : "音声で入力"}
-        >
-          {isTranscribing ? "変換中…" : isRecording ? "停止" : "録音"}
-        </button>
-        <button
-          type="submit"
-          className="button primary"
-          disabled={isLoading || !input.trim()}
-        >
-          送信
-        </button>
-      </form>
-      {/* Credit required by the VOICEVOX / character terms of use */}
-      <footer className="credit">音声合成: VOICEVOX:ずんだもん</footer>
+            }}
+          >
+            {showMedia && (
+              <label className="attach-toggle" title="送信時のカメラ映像を添付する">
+                <input
+                  type="checkbox"
+                  checked={attachFrame}
+                  onChange={(e) => setAttachFrame(e.currentTarget.checked)}
+                />
+                映像を添付
+              </label>
+            )}
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  sendToOllama();
+                }
+              }}
+              placeholder="メッセージを入力..."
+              rows={1}
+              autoFocus
+            />
+            <button
+              type="button"
+              className={`button mic${isRecording ? " recording" : ""}`}
+              onClick={toggleRecording}
+              disabled={isTranscribing}
+              title={isRecording ? "録音を停止して文字起こし" : "音声で入力"}
+            >
+              {isTranscribing ? "変換中…" : isRecording ? "停止" : "録音"}
+            </button>
+            <button
+              type="submit"
+              className="button primary"
+              disabled={isLoading || !input.trim()}
+            >
+              送信
+            </button>
+          </form>
+          {/* Credit required by the VOICEVOX / character terms of use */}
+          <footer className="credit">音声合成: VOICEVOX:ずんだもん</footer>
+        </div>
+      </div>
     </div>
   );
 }

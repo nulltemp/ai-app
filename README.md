@@ -23,6 +23,12 @@ npm run tauri dev
 
 詳細は [server/README.md](server/README.md) を参照してください。
 
+### アバター（VRM）
+
+VRM モデルはリポジトリに含まれていません。使用が許可されている VRM モデルを用意し、
+`client-tauri/public/models/avatar.vrm` に置いてください（このフォルダは `.gitignore` 済み）。
+アプリ上の「VRMを選択」ボタンから一時的に別のモデルを読み込むこともできます。
+
 ## 使用している主なソフトウェア・モデル
 
 | 用途 | 使用しているもの |
@@ -30,6 +36,7 @@ npm run tauri dev
 | LLM | [Ollama](https://ollama.com/) + Gemma 3 (`gemma3:4b`) |
 | 音声認識 | [faster-whisper](https://github.com/SYSTRAN/faster-whisper)（Whisper `small`） |
 | 音声合成 | [VOICEVOX ENGINE](https://github.com/VOICEVOX/voicevox_engine) |
+| アバター | [three.js](https://threejs.org/) + [@pixiv/three-vrm](https://github.com/pixiv/three-vrm) |
 
 ## クレジット
 

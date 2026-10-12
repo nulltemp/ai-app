@@ -417,3 +417,70 @@ textarea:focus {
   font-size: 0.72rem;
   color: var(--text-muted);
 }
+
+/* Layout: avatar beside the chat */
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.chat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Avatar */
+.avatar {
+  position: relative;
+  width: 300px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  background: linear-gradient(var(--surface), var(--bg));
+}
+
+.avatar-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.avatar-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.avatar-status code {
+  margin: 4px 0;
+  font-size: 0.75rem;
+  word-break: break-all;
+}
+
+.avatar-pick {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 640px) {
+  .body {
+    flex-direction: column;
+  }
+
+  .avatar {
+    width: 100%;
+    height: 220px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
