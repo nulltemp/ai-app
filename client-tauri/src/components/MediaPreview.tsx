@@ -74,7 +74,12 @@ function MediaPreview({ ref, onStreamChange, scene }: Props) {
     navigator.mediaDevices
       .getUserMedia({
         video: cameraId ? { deviceId: { exact: cameraId } } : true,
-        audio: micId ? { deviceId: { exact: micId } } : true,
+        // Echo cancellation keeps the avatar's voice out of the mic (for barge-in)
+        audio: {
+          ...(micId && { deviceId: { exact: micId } }),
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
       })
       .then((s) => {
         if (cancelled) {

@@ -305,13 +305,16 @@ function App() {
   }, [showMedia, watchCamera]);
 
   // Conversation mode: listen → transcribe → send → (read aloud) → listen again.
-  // Listening pauses while the AI is busy or speaking so it doesn't hear itself.
+  // Listening pauses while the AI is thinking, but continues while it speaks so the
+  // user can interrupt (barge-in): speaking up stops the read-aloud and records instead.
+  const isSpeakingRef = useRef(isSpeaking);
+  isSpeakingRef.current = isSpeaking;
   const sendRef = useRef(sendMessage);
   sendRef.current = sendMessage;
   const transcribeRef = useRef(transcribe);
   transcribeRef.current = transcribe;
   const canListen =
-    conversationMode && !isLoading && !isTranscribing && !isSpeaking && !isRecording;
+    conversationMode && !isLoading && !isTranscribing && !isRecording;
 
   useEffect(() => {
     if (!canListen) return;
@@ -324,7 +327,9 @@ function App() {
       let stream = showMedia ? mediaRef.current?.getAudioStream() ?? null : null;
       if (!stream) {
         try {
-          stream = ownStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream = ownStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true },
+          });
         } catch (error) {
           setError("マイクを取得できません: " + String(error));
           setConversationMode(false);
@@ -337,13 +342,22 @@ function App() {
       }
 
       setIsListening(true);
-      stopListening = listenForUtterance(stream, async (audio) => {
-        ownStream?.getTracks().forEach((t) => t.stop());
-        setIsListening(false);
-        const text = await transcribeRef.current(audio);
-        if (text) sendRef.current(text);
-        setListenRound((n) => n + 1);
-      });
+      stopListening = listenForUtterance(
+        stream,
+        async (audio) => {
+          ownStream?.getTracks().forEach((t) => t.stop());
+          setIsListening(false);
+          const text = await transcribeRef.current(audio);
+          if (text) sendRef.current(text);
+          setListenRound((n) => n + 1);
+        },
+        {
+          isBargeIn: () => isSpeakingRef.current,
+          onSpeechStart: () => {
+            if (isSpeakingRef.current) stopSpeaking();
+          },
+        }
+      );
     })();
 
     return () => {
@@ -518,15 +532,20 @@ function App() {
               autoFocus
             />
             {conversationMode ? (
-              <span className={`voice-status${isListening ? " listening" : ""}`}>
-                {isListening
-                  ? "聞き取り中"
-                  : isTranscribing
-                    ? "認識中…"
-                    : isLoading
-                      ? "考え中…"
-                      : isSpeaking
-                        ? "話し中"
+              <span
+                className={`voice-status${isListening && !isSpeaking ? " listening" : ""}`}
+                title={isSpeaking && isListening ? "話しかけると読み上げを止めて聞き取ります" : undefined}
+              >
+                {isSpeaking
+                  ? isListening
+                    ? "話し中（割り込み可）"
+                    : "話し中"
+                  : isListening
+                    ? "聞き取り中"
+                    : isTranscribing
+                      ? "認識中…"
+                      : isLoading
+                        ? "考え中…"
                         : "準備中…"}
               </span>
             ) : (

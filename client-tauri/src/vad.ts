@@ -10,6 +10,16 @@ const SILENCE_END_MS = 900;
 const IDLE_RESTART_MS = 15000;
 const MIN_THRESHOLD = 0.01;
 const NOISE_MULTIPLIER = 2.5;
+/** While interrupting the AI, speech must be longer and louder so its own voice doesn't trigger it. */
+const BARGE_IN_START_MS = 350;
+const BARGE_IN_MIN_THRESHOLD = 0.03;
+
+export type ListenOptions = {
+  /** Called once, as soon as speech is detected (before the utterance ends). */
+  onSpeechStart?: () => void;
+  /** Checked continuously; true while the AI is speaking, to use the stricter barge-in thresholds. */
+  isBargeIn?: () => boolean;
+};
 
 /**
  * Start listening on `stream`. `onUtterance` is called once, after the first
@@ -18,7 +28,8 @@ const NOISE_MULTIPLIER = 2.5;
  */
 export function listenForUtterance(
   stream: MediaStream,
-  onUtterance: (audio: Blob) => void
+  onUtterance: (audio: Blob) => void,
+  { onSpeechStart, isBargeIn }: ListenOptions = {}
 ): () => void {
   const ctx = new AudioContext();
   const analyser = ctx.createAnalyser();
@@ -60,10 +71,18 @@ export function listenForUtterance(
     for (const v of samples) sum += v * v;
     const rms = Math.sqrt(sum / samples.length);
 
-    const threshold = Math.max(MIN_THRESHOLD, noise * NOISE_MULTIPLIER);
+    // Once speech has started, keep the normal thresholds so the end of it isn't cut short
+    const bargeIn = !speaking && (isBargeIn?.() ?? false);
+    const threshold = Math.max(
+      bargeIn ? BARGE_IN_MIN_THRESHOLD : MIN_THRESHOLD,
+      noise * NOISE_MULTIPLIER
+    );
     if (rms > threshold) {
       voicedMs += CHECK_INTERVAL_MS;
-      if (voicedMs >= SPEECH_START_MS) speaking = true;
+      if (!speaking && voicedMs >= (bargeIn ? BARGE_IN_START_MS : SPEECH_START_MS)) {
+        speaking = true;
+        onSpeechStart?.();
+      }
       lastVoiceAt = now;
     } else {
       voicedMs = 0;
