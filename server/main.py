@@ -2,14 +2,16 @@ import asyncio
 import io
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from typing import Literal
 
+import httpx
 import ollama
 from faster_whisper import WhisperModel
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
+from fastapi.responses import PlainTextResponse, Response
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -17,6 +19,9 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:4b")
 # Whisper runs on CPU so the GPU's VRAM stays free for the LLM
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
+VOICEVOX_HOST = os.getenv("VOICEVOX_HOST", "http://localhost:50021")
+# Speaker style ID (GET {VOICEVOX_HOST}/speakers lists them); 3 = ずんだもん (ノーマル)
+VOICEVOX_SPEAKER = int(os.getenv("VOICEVOX_SPEAKER", "3"))
 
 
 class Message(BaseModel):
@@ -30,6 +35,10 @@ class ChatRequest(BaseModel):
     messages: list[Message]
 
 
+class TTSRequest(BaseModel):
+    text: str = Field(min_length=1)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Share a single client (and its connection pool) across requests
@@ -37,7 +46,10 @@ async def lifespan(app: FastAPI):
     # Whisper is loaded lazily on the first /stt call (the first load downloads the model)
     app.state.whisper = None
     app.state.whisper_lock = asyncio.Lock()
+    # Synthesis of long text on CPU can take a while
+    app.state.voicevox = httpx.AsyncClient(base_url=VOICEVOX_HOST, timeout=60)
     yield
+    await app.state.voicevox.aclose()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -119,3 +131,27 @@ async def speech_to_text(request: Request):
         raise HTTPException(status_code=400, detail="Could not transcribe the audio")
 
     return {"text": text}
+
+
+@app.post("/tts")
+async def text_to_speech(tts: TTSRequest, request: Request):
+    """
+    Synthesize Japanese speech with VOICEVOX and return it as audio/wav.
+    """
+    # Drop Markdown symbols the LLM tends to emit so they aren't read aloud
+    text = re.sub(r"[*#`_~>|]", "", tts.text).strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Nothing to speak")
+
+    client: httpx.AsyncClient = request.app.state.voicevox
+    params = {"speaker": VOICEVOX_SPEAKER}
+    try:
+        query = await client.post("/audio_query", params={**params, "text": text})
+        query.raise_for_status()
+        audio = await client.post("/synthesis", params=params, json=query.json())
+        audio.raise_for_status()
+    except Exception:
+        logger.exception("VOICEVOX request failed")
+        raise HTTPException(status_code=502, detail="Failed to synthesize speech")
+
+    return Response(content=audio.content, media_type="audio/wav")

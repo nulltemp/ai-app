@@ -20,6 +20,8 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const [readAloud, setReadAloud] = useState(true);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -63,10 +65,40 @@ function App() {
       }
       // Server returns the message object: { role: 'assistant', content: '...' }
       setMessages([...history, { role: "assistant", content: data.content }]);
+      if (readAloud) speak(data.content);
     } catch (error) {
       setError(String(error));
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  function stopSpeaking() {
+    audioRef.current?.pause();
+    audioRef.current = null;
+  }
+
+  async function speak(text: string) {
+    stopSpeaking();
+    try {
+      const res = await fetch(`${API_BASE}/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(
+          typeof data.detail === "string" ? data.detail : `HTTP ${res.status}`
+        );
+      }
+      const url = URL.createObjectURL(await res.blob());
+      const audio = new Audio(url);
+      audio.onended = audio.onpause = () => URL.revokeObjectURL(url);
+      audioRef.current = audio;
+      await audio.play();
+    } catch (error) {
+      setError("読み上げに失敗しました: " + String(error));
     }
   }
 
@@ -95,6 +127,8 @@ function App() {
       if (ownsStream) stream.getTracks().forEach((t) => t.stop());
       transcribe(new Blob(chunks, { type: recorder.mimeType }));
     };
+    // Don't let the avatar's own voice leak into the recording
+    stopSpeaking();
     recorderRef.current = recorder;
     recorder.start();
     setIsRecording(true);
@@ -150,6 +184,17 @@ function App() {
           >
             カメラ
           </button>
+          <button
+            type="button"
+            className={`button ghost${readAloud ? " active" : ""}`}
+            onClick={() => {
+              if (readAloud) stopSpeaking();
+              setReadAloud((v) => !v);
+            }}
+            title="AIの返答を音声で読み上げる"
+          >
+            読み上げ
+          </button>
           <details className="echo">
             <summary className="button ghost">接続テスト</summary>
             <form
@@ -176,6 +221,7 @@ function App() {
             type="button"
             className="button ghost"
             onClick={() => {
+              stopSpeaking();
               setMessages([]);
               setError("");
             }}
@@ -270,6 +316,8 @@ function App() {
           送信
         </button>
       </form>
+      {/* Credit required by the VOICEVOX / character terms of use */}
+      <footer className="credit">音声合成: VOICEVOX:ずんだもん</footer>
     </div>
   );
 }

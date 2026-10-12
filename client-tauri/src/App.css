@@ -408,3 +408,12 @@ textarea:focus {
   color: var(--error-text);
   animation: blink 1.2s infinite ease-in-out;
 }
+
+/* Credits */
+.credit {
+  margin-top: -12px;
+  padding: 0 20px 6px;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}

@@ -10,6 +10,7 @@ services:
       - PYTHONUNBUFFERED=1
       - OLLAMA_HOST=http://ollama:11434
       - OLLAMA_MODEL=gemma3:4b
+      - VOICEVOX_HOST=http://voicevox:50021
     volumes:
       - ./server:/app
       # Cache downloaded Whisper models across container rebuilds
@@ -18,6 +19,7 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       - ollama
+      - voicevox
     restart: unless-stopped
 
   # Ollama service
@@ -36,6 +38,13 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    restart: unless-stopped
+
+  # VOICEVOX text-to-speech engine (CPU build; the GPU is left to Ollama)
+  voicevox:
+    image: voicevox/voicevox_engine:cpu-0.25.2
+    ports:
+      - "127.0.0.1:50021:50021"
     restart: unless-stopped
 
 volumes:
