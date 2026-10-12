@@ -17,6 +17,9 @@ function App() {
   const [showMedia, setShowMedia] = useState(false);
   const [attachFrame, setAttachFrame] = useState(true);
   const mediaRef = useRef<MediaPreviewHandle>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -64,6 +67,62 @@ function App() {
       setError(String(error));
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function toggleRecording() {
+    if (recorderRef.current) {
+      recorderRef.current.stop();
+      return;
+    }
+
+    // Use the mic selected in the camera panel if it is open; otherwise the default mic.
+    let stream = showMedia ? mediaRef.current?.getAudioStream() ?? null : null;
+    const ownsStream = !stream;
+    try {
+      stream ??= await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      setError("マイクを取得できません: " + String(error));
+      return;
+    }
+
+    const recorder = new MediaRecorder(stream);
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (e) => chunks.push(e.data);
+    recorder.onstop = () => {
+      recorderRef.current = null;
+      setIsRecording(false);
+      if (ownsStream) stream.getTracks().forEach((t) => t.stop());
+      transcribe(new Blob(chunks, { type: recorder.mimeType }));
+    };
+    recorderRef.current = recorder;
+    recorder.start();
+    setIsRecording(true);
+    setError("");
+  }
+
+  async function transcribe(audio: Blob) {
+    if (audio.size === 0) return;
+    setIsTranscribing(true);
+    try {
+      const res = await fetch(`${API_BASE}/stt`, {
+        method: "POST",
+        headers: { "Content-Type": audio.type || "application/octet-stream" },
+        body: audio,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(
+          typeof data.detail === "string" ? data.detail : `HTTP ${res.status}`
+        );
+      }
+      if (data.text) {
+        setInput((prev) => (prev ? prev + " " : "") + data.text);
+      }
+    } catch (error) {
+      setError("音声認識に失敗しました: " + String(error));
+    } finally {
+      setIsTranscribing(false);
     }
   }
 
@@ -194,6 +253,15 @@ function App() {
           rows={1}
           autoFocus
         />
+        <button
+          type="button"
+          className={`button mic${isRecording ? " recording" : ""}`}
+          onClick={toggleRecording}
+          disabled={isTranscribing}
+          title={isRecording ? "録音を停止して文字起こし" : "音声で入力"}
+        >
+          {isTranscribing ? "変換中…" : isRecording ? "停止" : "録音"}
+        </button>
         <button
           type="submit"
           className="button primary"

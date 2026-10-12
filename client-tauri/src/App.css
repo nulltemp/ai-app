@@ -397,3 +397,14 @@ textarea:focus {
   white-space: nowrap;
   cursor: pointer;
 }
+
+/* Voice input */
+.composer .button.mic {
+  padding: 0 14px;
+}
+
+.button.mic.recording {
+  border-color: var(--error-text);
+  color: var(--error-text);
+  animation: blink 1.2s infinite ease-in-out;
+}

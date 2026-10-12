@@ -5,6 +5,8 @@ type DeviceOption = { deviceId: string; label: string };
 export type MediaPreviewHandle = {
   /** Current camera frame as base64 JPEG (no data: URL prefix), or null if no video. */
   captureFrame: () => string | null;
+  /** Live stream from the selected microphone, or null if not acquired. */
+  getAudioStream: () => MediaStream | null;
 };
 
 // Gemma 3's vision encoder works at 896x896, so larger frames only cost bandwidth.
@@ -36,6 +38,10 @@ function MediaPreview({ ref }: { ref?: Ref<MediaPreviewHandle> }) {
       canvas.height = Math.round(video.videoHeight * scale);
       canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
       return canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+    },
+    getAudioStream() {
+      const tracks = stream?.getAudioTracks() ?? [];
+      return tracks.length > 0 ? new MediaStream(tracks) : null;
     },
   }));
 

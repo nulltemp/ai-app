@@ -12,6 +12,8 @@ services:
       - OLLAMA_MODEL=gemma3:4b
     volumes:
       - ./server:/app
+      # Cache downloaded Whisper models across container rebuilds
+      - hf_cache:/root/.cache/huggingface
     # Reload on edits since ./server is bind-mounted
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
@@ -38,3 +40,4 @@ services:
 
 volumes:
   ollama_data:
+  hf_cache:
