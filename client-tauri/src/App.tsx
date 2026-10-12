@@ -13,6 +13,8 @@ const CAMERA_PROMPT =
   "見えている光景はあなた自身が見ているもので、ユーザーが見ているものではありません。" +
   "写っている人物は会話相手のユーザー本人です。" +
   "見えているものについて話すときは「〜が見えます」「〜を持っていますね」のように、あなた自身の視点で話してください。";
+/** One sentence (with any closing brackets) at the start of the text being streamed. */
+const SENTENCE_RE = /^[\s\S]*?[。！？!?\n]+[」』）)]*/;
 /** Pause between background descriptions of the camera view. */
 const SCENE_INTERVAL_MS = 5000;
 
@@ -40,6 +42,10 @@ function App() {
   // Bumped on every stop so a pending TTS request doesn't start playing afterwards
   const speechIdRef = useRef(0);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  // Read-aloud queue: TTS for the next sentence is fetched while the current one plays
+  const ttsChainRef = useRef<Promise<unknown>>(Promise.resolve());
+  const playChainRef = useRef<Promise<void>>(Promise.resolve());
+  const queuedSpeechRef = useRef(0);
   const [conversationMode, setConversationMode] = useState(false);
   const [isListening, setIsListening] = useState(false);
   // Bumped to restart listening (after each utterance, or when the panel's mic changes)
@@ -47,6 +53,8 @@ function App() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(isLoading);
   loadingRef.current = isLoading;
+  const readAloudRef = useRef(readAloud);
+  readAloudRef.current = readAloud;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -68,9 +76,10 @@ function App() {
     if (text === input) setInput("");
     setError("");
     setIsLoading(true);
+    stopSpeaking();
 
     try {
-      const res = await fetch(`${API_BASE}/ollama`, {
+      const res = await fetch(`${API_BASE}/ollama/stream`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -97,17 +106,31 @@ function App() {
           ],
         }),
       });
-      const data = await res.json();
       if (!res.ok) {
+        const data = await res.json();
         throw new Error(
-          typeof data.detail === "string"
-            ? data.detail
-            : `HTTP ${res.status}`
+          typeof data.detail === "string" ? data.detail : `HTTP ${res.status}`
         );
       }
-      // Server returns the message object: { role: 'assistant', content: '...' }
-      setMessages([...history, { role: "assistant", content: data.content }]);
-      if (readAloud) speak(data.content);
+      if (!res.body) throw new Error("Empty response");
+
+      // Show the reply as it streams in, and queue each finished sentence for reading aloud
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let content = "";
+      let unspoken = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        content += value;
+        unspoken += value;
+        setMessages([...history, { role: "assistant", content }]);
+        let m: RegExpMatchArray | null;
+        while ((m = unspoken.match(SENTENCE_RE))) {
+          queueSpeech(m[0]);
+          unspoken = unspoken.slice(m[0].length);
+        }
+      }
+      queueSpeech(unspoken);
     } catch (error) {
       setError(String(error));
     } finally {
@@ -117,48 +140,68 @@ function App() {
 
   function stopSpeaking() {
     speechIdRef.current++;
+    ttsChainRef.current = Promise.resolve();
+    playChainRef.current = Promise.resolve();
+    queuedSpeechRef.current = 0;
     audioRef.current?.pause();
     audioRef.current = null;
     setIsSpeaking(false);
   }
 
-  async function speak(text: string) {
-    stopSpeaking();
+  /** Add a sentence to the read-aloud queue (no-op if read-aloud is off or nothing speakable). */
+  function queueSpeech(text: string) {
+    // Skip symbol-only pieces (e.g. a closing bracket split off the previous sentence);
+    // the server strips Markdown symbols too, so they would just fail there
+    if (!readAloudRef.current || !text.replace(/[*#`_~>|\s」』）)]/g, "")) return;
     const id = speechIdRef.current;
+    const current = () => id === speechIdRef.current;
+    queuedSpeechRef.current++;
     setIsSpeaking(true);
-    try {
-      const res = await fetch(`${API_BASE}/tts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(
-          typeof data.detail === "string" ? data.detail : `HTTP ${res.status}`
-        );
-      }
-      const blob = await res.blob();
-      if (id !== speechIdRef.current) return;
 
+    // Fetch in order, one at a time, without waiting for playback
+    const audio = ttsChainRef.current.then(() => (current() ? fetchSpeech(text) : null));
+    ttsChainRef.current = audio.catch(() => {});
+    playChainRef.current = playChainRef.current
+      .then(async () => {
+        const blob = await audio;
+        if (blob && current()) await playAudio(blob);
+      })
+      .catch((error) => {
+        if (current()) setError("読み上げに失敗しました: " + String(error));
+      })
+      .finally(() => {
+        if (current() && --queuedSpeechRef.current === 0) setIsSpeaking(false);
+      });
+  }
+
+  async function fetchSpeech(text: string): Promise<Blob> {
+    const res = await fetch(`${API_BASE}/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(typeof data.detail === "string" ? data.detail : `HTTP ${res.status}`);
+    }
+    return res.blob();
+  }
+
+  /** Play audio with lip sync; resolves when it ends or is stopped. */
+  function playAudio(blob: Blob): Promise<void> {
+    return new Promise((resolve) => {
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
-      audio.onended = audio.onpause = () => {
+      const done = () => {
         URL.revokeObjectURL(url);
-        if (audioRef.current === audio) {
-          audioRef.current = null;
-          setIsSpeaking(false);
-        }
+        if (audioRef.current === audio) audioRef.current = null;
+        resolve();
       };
+      audio.onended = audio.onpause = audio.onerror = done;
       connectLipSync(audio);
       audioRef.current = audio;
-      await audio.play();
-    } catch (error) {
-      if (id !== speechIdRef.current) return;
-      audioRef.current = null;
-      setIsSpeaking(false);
-      setError("読み上げに失敗しました: " + String(error));
-    }
+      audio.play().catch(done);
+    });
   }
 
   async function toggleRecording() {
@@ -431,7 +474,7 @@ function App() {
                 </div>
               </div>
             ))}
-            {isLoading && (
+            {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
               <div className="message assistant">
                 <div className="bubble typing" aria-label="応答を待っています">
                   <span />

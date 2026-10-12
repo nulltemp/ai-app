@@ -10,7 +10,7 @@ import httpx
 import ollama
 from faster_whisper import WhisperModel
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import PlainTextResponse, Response
+from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("uvicorn.error")
@@ -78,6 +78,20 @@ async def echo_string(request: Request):
     return PlainTextResponse(body.decode("utf-8", errors="replace"))
 
 
+def ollama_error(e: Exception) -> HTTPException:
+    """Log an Ollama failure and turn it into a generic 502 for the client."""
+    if isinstance(e, ollama.ResponseError):
+        logger.exception("Ollama returned an error")
+        if e.status_code == 404:
+            return HTTPException(
+                status_code=502,
+                detail=f"Model '{OLLAMA_MODEL}' is not available on Ollama. Pull it first.",
+            )
+        return HTTPException(status_code=502, detail="Ollama returned an error")
+    logger.exception("Failed to reach Ollama")
+    return HTTPException(status_code=502, detail="Failed to reach Ollama")
+
+
 @app.post("/ollama")
 async def forward_to_ollama(chat: ChatRequest, request: Request):
     """
@@ -89,20 +103,44 @@ async def forward_to_ollama(chat: ChatRequest, request: Request):
             model=OLLAMA_MODEL,
             messages=[m.model_dump(exclude_none=True) for m in chat.messages],
         )
-    except ollama.ResponseError as e:
-        logger.exception("Ollama returned an error")
-        if e.status_code == 404:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Model '{OLLAMA_MODEL}' is not available on Ollama. Pull it first.",
-            )
-        raise HTTPException(status_code=502, detail="Ollama returned an error")
-    except Exception:
-        logger.exception("Failed to reach Ollama")
-        raise HTTPException(status_code=502, detail="Failed to reach Ollama")
+    except Exception as e:
+        raise ollama_error(e)
 
     # Return only the message part
     return {"role": response.message.role, "content": response.message.content}
+
+
+@app.post("/ollama/stream")
+async def stream_from_ollama(chat: ChatRequest, request: Request):
+    """
+    Like /ollama, but streams the reply text as plain text chunks while it is
+    generated, so the client can show it and start reading it aloud early.
+    """
+    client: ollama.AsyncClient = request.app.state.ollama
+    try:
+        stream = await client.chat(
+            model=OLLAMA_MODEL,
+            messages=[m.model_dump(exclude_none=True) for m in chat.messages],
+            stream=True,
+        )
+        # The request is only sent on the first iteration; pull the first chunk
+        # here so errors still become a proper 502 before the response starts.
+        first = await anext(stream, None)
+    except Exception as e:
+        raise ollama_error(e)
+
+    async def generate():
+        if first is None:
+            return
+        yield first.message.content
+        try:
+            async for part in stream:
+                yield part.message.content
+        except Exception:
+            # Headers are already sent, so all we can do is end the stream early
+            logger.exception("Ollama stream failed")
+
+    return StreamingResponse(generate(), media_type="text/plain; charset=utf-8")
 
 
 @app.post("/describe")
